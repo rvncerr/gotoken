@@ -13,7 +13,7 @@ func TestGetDepth(t *testing.T) {
 	const rightY = 10
 
 	ga := assert.New(t)
-	st := NewPolicyDepth(leftX, leftY, rightX, rightY)
+	st := NewSmartTokenDepthPolicy(leftX, leftY, rightX, rightY)
 
 	for i := 1; i <= leftX; i++ {
 		ga.Equal(st.GetDepth(i), leftY, "depth policy left part")

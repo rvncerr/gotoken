@@ -1,14 +1,14 @@
 package gotoken
 
-type PolicyDepth struct {
+type SmartTokenDepthPolicy struct {
 	maxLength int
 	maxDepth  int
 	minLength int
 	minDepth  int
 }
 
-func NewPolicyDepth(maxLength int, maxDepth int, minLength int, minDepth int) SmartTokenPolicy {
-	return &PolicyDepth{
+func NewSmartTokenDepthPolicy(maxLength int, maxDepth int, minLength int, minDepth int) SmartTokenPolicy {
+	return &SmartTokenDepthPolicy{
 		maxLength: maxLength,
 		maxDepth:  maxDepth,
 		minLength: minLength,
@@ -16,7 +16,7 @@ func NewPolicyDepth(maxLength int, maxDepth int, minLength int, minDepth int) Sm
 	}
 }
 
-func (p *PolicyDepth) GetDepth(length int) int {
+func (p *SmartTokenDepthPolicy) GetDepth(length int) int {
 	// TODO: It seems min & max conditoins are reversed???
 	if length <= p.maxLength {
 		return p.maxDepth

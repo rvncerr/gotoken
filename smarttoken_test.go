@@ -16,7 +16,7 @@ type tokenizerTestSet struct {
 
 func runTokenizerTestSetDepth(testSet []tokenizerTestSet, t *testing.T) {
 	assert := assert.New(t)
-	st := NewDepthTokenizer(10, 10, 18, 2)
+	st := NewSmartToken(10, 10, 18, 2)
 	st.AddRangeTable(unicode.Latin)
 	st.AddRangeTable(unicode.Cyrillic)
 

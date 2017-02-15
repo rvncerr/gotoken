@@ -85,8 +85,8 @@ func (st *SmartToken) detectLanguage(bs []interface{}, rc []interface{}, rt []in
 	}
 }
 
-func NewDepthTokenizer(maxLength int, maxDepth int, minLength int, minDepth int) *SmartToken {
-	policy := NewPolicyDepth(maxLength, maxDepth, minLength, minDepth)
+func NewSmartToken(maxLength int, maxDepth int, minLength int, minDepth int) *SmartToken {
+	policy := NewSmartTokenDepthPolicy(maxLength, maxDepth, minLength, minDepth)
 	return &SmartToken{
 		policy: policy,
 	}
