@@ -7,8 +7,8 @@ A smart tokenization library for Go with multilingual support and language detec
 - **Sub-token generation** — Generates multiple overlapping tokens from compound words
 - **Language detection** — Identifies language of text segments using Unicode range tables
 - **Configurable depth** — Policy-based control over tokenization granularity
-- **Zero dependencies** — Pure Go, no external packages required
-- **Generics** — Type-safe implementation using Go 1.21+ generics
+- **Concurrency-safe** — A `Tokenizer` is immutable once built and safe to share across goroutines, provided its `Policy` is too (all built-in policies are)
+- **Minimal dependencies** — A single small dependency ([`gocircular`](https://github.com/rvncerr/gocircular)) for its generic ring buffer
 
 ## Installation
 
@@ -88,12 +88,38 @@ tok := gotoken.New(
 )
 ```
 
+## Token metadata
+
+Each entry in the returned map carries a `TokenInfo`:
+
+```go
+type TokenInfo struct {
+    Language int    // index into the configured languages, or -1
+    Base     [2]int // byte offsets [start, end) of the language-relevant portion
+}
+```
+
+`Base` is relative to the start of the sub-token, not the source string. The
+zero value `[0, 0]` is a **sentinel meaning "undetermined"** rather than an
+empty span at offset 0 — check for it before slicing:
+
+```go
+tokens := tok.Tokenize("hello123 123...")
+
+tokens["hello123"] // {Language: 0, Base: [0, 5]}  -> "hello" is the base
+tokens["123..."]   // {Language: -1, Base: [0, 0]} -> no language-relevant portion
+```
+
+A token is undetermined when it contains no letters, or when it spans more than
+three segments and so has no single identifiable language portion. This holds
+uniformly, including under a policy that emits only whole tokens.
+
 ## API
 
 ### Types
 
 - `Tokenizer` — Main tokenizer struct
-- `TokenInfo` — Contains detected language index and byte offsets
+- `TokenInfo` — Contains detected language index and byte offsets (see [Token metadata](#token-metadata))
 - `Policy` — Interface for depth calculation
 - `CountPolicy` — Limits total subtoken count (recommended)
 - `LinearPolicy` — Interpolates depth linearly by segment count

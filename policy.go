@@ -3,8 +3,13 @@ package gotoken
 import "math"
 
 // Policy determines the tokenization depth based on segment count.
-// A segment is a contiguous run of the same character class.
+// A segment is a contiguous run of runes sharing a character class and, for
+// letters, a detected language.
 // Depth controls how many levels of sub-tokens are generated.
+//
+// A Tokenizer calls Depth once per token, so an implementation shared by
+// concurrent Tokenize calls must be safe for concurrent use. The policies in
+// this package are immutable and therefore safe.
 type Policy interface {
 	// Depth returns the maximum tokenization depth for a token with given segments.
 	Depth(segments int) int
@@ -16,7 +21,11 @@ type FixedPolicy struct {
 }
 
 // NewFixedPolicy creates a policy with constant depth.
+// A negative depth is clamped to 0 (whole token only).
 func NewFixedPolicy(depth int) *FixedPolicy {
+	if depth < 0 {
+		depth = 0
+	}
 	return &FixedPolicy{depth: depth}
 }
 
@@ -71,6 +80,9 @@ func (p *LinearPolicy) Depth(segments int) int {
 //  1. Always including the whole token
 //  2. Adding complete levels from smallest to largest subtokens
 //  3. Never partially filling a level
+//
+// The whole token is charged against maxCount, so a token never expands into
+// more than maxCount map entries.
 type CountPolicy struct {
 	maxCount int
 }
@@ -91,11 +103,13 @@ func NewCountPolicy(maxCount int) *CountPolicy {
 
 // Depth calculates the maximum depth that keeps total subtokens ≤ maxCount.
 //
-// For N segments at depth D, total subtokens = D*N - D*(D-1)/2
-// We find the largest D satisfying this constraint.
+// For N segments at depth D, the sliding window emits D*N - D*(D-1)/2
+// subtokens. Tokenize always emits the whole token on top of those whenever the
+// window is too narrow to span it, so one slot is reserved for it and the
+// largest D satisfying D*N - D*(D-1)/2 ≤ maxCount-1 is returned.
 //
-// Returns 0 if maxCount is too small for even single-segment tokens,
-// meaning only the whole token should be emitted.
+// Returns 0 if the remaining budget is too small for even single-segment
+// subtokens, meaning only the whole token should be emitted.
 func (p *CountPolicy) Depth(segments int) int {
 	if segments <= 0 {
 		return 0
@@ -105,9 +119,13 @@ func (p *CountPolicy) Depth(segments int) int {
 	}
 
 	n := segments
-	m := p.maxCount
 
-	// At depth 1, we get N subtokens. If maxCount < N, return 0 (whole token only).
+	// Reserve one slot for the whole token, which is emitted regardless of the
+	// depth returned here.
+	m := p.maxCount - 1
+
+	// At depth 1, we get N subtokens. If they do not fit in the remaining
+	// budget, return 0 (whole token only).
 	if m < n {
 		return 0
 	}
@@ -119,7 +137,7 @@ func (p *CountPolicy) Depth(segments int) int {
 
 	discriminant := float64((2*n+1)*(2*n+1) - 8*m)
 	if discriminant < 0 {
-		// All levels fit within maxCount
+		// All levels fit within the budget
 		return n
 	}
 
