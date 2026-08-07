@@ -67,16 +67,24 @@ func WithPolicy(p Policy) Option {
 
 // WithLanguage adds a Unicode range table for language detection.
 // The order of added languages determines their index (0, 1, 2, ...).
+// A nil range table is ignored.
 func WithLanguage(rt *unicode.RangeTable) Option {
 	return func(t *Tokenizer) {
-		t.languages = append(t.languages, rt)
+		if rt != nil {
+			t.languages = append(t.languages, rt)
+		}
 	}
 }
 
 // WithLanguages adds multiple Unicode range tables for language detection.
+// Nil range tables are ignored.
 func WithLanguages(tables ...*unicode.RangeTable) Option {
 	return func(t *Tokenizer) {
-		t.languages = append(t.languages, tables...)
+		for _, rt := range tables {
+			if rt != nil {
+				t.languages = append(t.languages, rt)
+			}
+		}
 	}
 }
 
@@ -182,10 +190,10 @@ func (s *scanner) extractSubtokens(token string, tokens map[string]TokenInfo) {
 	// The window is sized in position markers, of which a token with N segments
 	// has N+1: one per segment start plus the end of the token. A wider window
 	// than that would never fill.
-	depth := policyDepth + 1
-	if depth > segments+1 {
-		depth = segments + 1
+	if policyDepth > segments {
+		policyDepth = segments
 	}
+	depth := policyDepth + 1
 
 	// Second pass: extract subtokens
 	s.reset()
@@ -371,7 +379,7 @@ func (s *scanner) detectLanguage(positions []int, classes []RuneClass, langs []i
 			}
 			return langs[2], base(2, 3)
 		case c1 == ClassLetter && c2 == ClassLetter:
-			return langs[2], base(2, 3)
+			return langs[2], base(1, 3)
 		case c0 == ClassLetter:
 			return langs[0], base(0, 1)
 		case c1 == ClassLetter:

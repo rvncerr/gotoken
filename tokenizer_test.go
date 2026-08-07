@@ -2,6 +2,7 @@ package gotoken
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"sync"
@@ -248,6 +249,27 @@ func TestTokenizer_Languages(t *testing.T) {
 				t.Errorf("Tokenize(%q) = %v, want %v", tt.input, got, tt.expect)
 			}
 		})
+	}
+}
+
+func TestTokenizer_ThreeSegmentLetterBaseIsSymmetric(t *testing.T) {
+	tok := New(
+		WithPolicy(NewFixedPolicy(3)),
+		WithLanguages(unicode.Latin, unicode.Cyrillic),
+	)
+
+	tests := []struct {
+		input string
+		want  TokenInfo
+	}{
+		{"aб.", TokenInfo{Language: 1, Base: [2]int{0, 3}}},
+		{".aб", TokenInfo{Language: 1, Base: [2]int{1, 4}}},
+	}
+
+	for _, tt := range tests {
+		if got := tok.Tokenize(tt.input)[tt.input]; got != tt.want {
+			t.Errorf("Tokenize(%q)[%q] = %+v, want %+v", tt.input, tt.input, got, tt.want)
+		}
 	}
 }
 
@@ -560,6 +582,48 @@ func TestNew_NilPolicy(t *testing.T) {
 	got := tok.Tokenize("hello")
 	if _, ok := got["hello"]; !ok {
 		t.Errorf("Tokenize(%q) missing token; got %v", "hello", got)
+	}
+}
+
+func TestTokenizer_NilLanguagesIgnored(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("nil language table panicked: %v", r)
+		}
+	}()
+
+	tok := New(
+		WithLanguage(nil),
+		WithLanguages(nil, unicode.Latin, nil, unicode.Cyrillic),
+	)
+
+	got := tok.Tokenize("aб")
+	if got["a"].Language != 0 {
+		t.Errorf("Latin language index = %d, want 0", got["a"].Language)
+	}
+	if got["б"].Language != 1 {
+		t.Errorf("Cyrillic language index = %d, want 1", got["б"].Language)
+	}
+}
+
+func TestTokenizer_MaxDepthDoesNotOverflow(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("maximum policy depth panicked: %v", r)
+		}
+	}()
+
+	tok := New(
+		WithPolicy(NewFixedPolicy(math.MaxInt)),
+		WithLanguages(unicode.Latin),
+	)
+	want := New(
+		WithPolicy(NewFixedPolicy(2)),
+		WithLanguages(unicode.Latin),
+	).Tokenize("a.1")
+
+	if got := tok.Tokenize("a.1"); !reflect.DeepEqual(got, want) {
+		t.Errorf("Tokenize with maximum depth = %v, want %v", got, want)
 	}
 }
 
