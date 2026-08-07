@@ -154,8 +154,3 @@ func (p *CountPolicy) Depth(segments int) int {
 
 	return depth
 }
-
-// subtokenCount returns the total number of subtokens for n segments at depth d.
-func subtokenCount(n, d int) int {
-	return d*n - d*(d-1)/2
-}

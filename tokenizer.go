@@ -1,3 +1,21 @@
+// Package gotoken implements SmartToken, a deterministic multilingual
+// tokenization algorithm for hashed full-text search.
+//
+// SmartToken splits each whitespace-delimited token at Unicode character-class
+// and script boundaries into segments, then emits every contiguous run of at
+// most D segments as an overlapping sub-token, where the depth D is chosen by
+// a pluggable Policy. The whole token is always emitted, so exact-match
+// lookups keep full recall. Each sub-token carries a TokenInfo with the
+// detected language index and the byte range of the language-relevant portion.
+//
+// Three policies are provided: FixedPolicy returns a constant depth,
+// LinearPolicy interpolates the depth from the segment count (the default),
+// and CountPolicy picks the largest depth whose output stays within a hard
+// per-token budget, which is the recommended choice for capacity-planned
+// indexes.
+//
+// A Tokenizer is immutable once constructed and safe for concurrent use,
+// provided its Policy is too; all policies in this package are.
 package gotoken
 
 import (
@@ -13,11 +31,18 @@ import (
 type RuneClass int
 
 const (
-	classUndef  RuneClass = iota // 0: no class assigned yet
-	ClassLetter                  // 1
-	ClassDigit                   // 2
-	ClassPunct                   // 3
-	ClassOther                   // 4
+	classUndef RuneClass = iota // 0: no class assigned yet
+
+	// ClassLetter covers Unicode letters (unicode.IsLetter).
+	ClassLetter
+	// ClassDigit covers decimal digits only (unicode.IsDigit); other
+	// numerals fall into ClassOther.
+	ClassDigit
+	// ClassPunct covers Unicode punctuation (unicode.IsPunct).
+	ClassPunct
+	// ClassOther covers every rune outside the classes above, including
+	// symbols, marks, and non-decimal numerics.
+	ClassOther
 )
 
 // TokenInfo contains metadata about a detected token.

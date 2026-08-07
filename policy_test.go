@@ -108,6 +108,12 @@ func TestCountPolicy(t *testing.T) {
 	}
 }
 
+// subtokenCount returns the total number of subtokens for n segments at depth
+// d, i.e. the sliding-window count d*n - d*(d-1)/2 from CountPolicy.Depth.
+func subtokenCount(n, d int) int {
+	return d*n - d*(d-1)/2
+}
+
 // emittedTokens returns how many map entries Tokenize produces for a token with
 // n segments at the given depth: the sliding-window subtokens, plus the whole
 // token when the window is too narrow to span it. It is an upper bound, since
