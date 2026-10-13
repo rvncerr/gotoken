@@ -8,6 +8,12 @@
 // lookups keep full recall. Each sub-token carries a TokenInfo with the
 // detected language index and the byte range of the language-relevant portion.
 //
+// Input is brought into Unicode Normalization Form C before segmentation, so
+// canonically equivalent spellings of the same text — a precomposed "é" and an
+// "e" followed by a combining acute accent — yield identical sub-tokens. The
+// form is configurable with WithNormalization, and WithoutNormalization skips
+// the pass for callers that normalize upstream.
+//
 // Three policies are provided: FixedPolicy returns a constant depth,
 // LinearPolicy interpolates the depth from the segment count (the default),
 // and CountPolicy picks the largest depth whose output stays within a hard
@@ -22,6 +28,7 @@ import (
 	"unicode"
 
 	"github.com/rvncerr/gocircular"
+	"golang.org/x/text/unicode/norm"
 )
 
 // RuneClass categorizes Unicode runes into character classes.
@@ -74,6 +81,8 @@ type TokenInfo struct {
 type Tokenizer struct {
 	languages []*unicode.RangeTable
 	policy    Policy
+	form      norm.Form
+	normalize bool
 }
 
 // Option configures a Tokenizer.
@@ -113,13 +122,42 @@ func WithLanguages(tables ...*unicode.RangeTable) Option {
 	}
 }
 
+// WithNormalization sets the Unicode normalization form applied to the source
+// before segmentation. The default is norm.NFC, which composes canonically
+// equivalent sequences — "e" followed by U+0301 COMBINING ACUTE ACCENT becomes
+// the single code point "é" — so that a word spelled either way yields
+// byte-identical sub-tokens. norm.NFKC additionally folds compatibility
+// variants (fullwidth letters, ligatures, superscript digits) onto their plain
+// counterparts, which widens matching at the cost of conflating characters
+// Unicode treats as distinct.
+//
+// Normalization is applied to the whole source, so under the compatibility
+// forms characters that fold to white space, such as U+00A0 NO-BREAK SPACE,
+// become token boundaries.
+func WithNormalization(f norm.Form) Option {
+	return func(t *Tokenizer) {
+		t.form = f
+		t.normalize = true
+	}
+}
+
+// WithoutNormalization disables the normalization pass. Use it only when the
+// source is already in the form the index should see: otherwise canonically
+// equivalent inputs split differently — "e" followed by a combining accent is
+// cut at the accent, which is not a letter — and hash to different features.
+func WithoutNormalization() Option {
+	return func(t *Tokenizer) {
+		t.normalize = false
+	}
+}
+
 // defaultPolicy is used when no policy is configured (or a nil policy is set).
 // LinearPolicy is immutable, so one shared instance serves every Tokenizer.
 var defaultPolicy Policy = NewLinearPolicy(10, 10, 18, 2)
 
 // New creates a new Tokenizer with the given options.
 func New(opts ...Option) *Tokenizer {
-	t := &Tokenizer{}
+	t := &Tokenizer{form: norm.NFC, normalize: true}
 	for _, opt := range opts {
 		opt(t)
 	}
@@ -132,10 +170,19 @@ func New(opts ...Option) *Tokenizer {
 // Tokenize processes the input string and returns all detected tokens with
 // their info.
 //
-// The result is keyed by sub-token text, so identical sub-token strings are
-// deduplicated and the last occurrence wins. Map keys are sub-slices of
-// source, so the returned map keeps source's backing storage alive.
+// The source is first normalized (see WithNormalization); every sub-token and
+// byte offset in the result refers to the normalized text. The result is keyed
+// by sub-token text, so identical sub-token strings are deduplicated and the
+// last occurrence wins. Map keys are sub-slices of the normalized source — of
+// source itself when it needed no change — so the returned map keeps that
+// backing storage alive.
 func (t *Tokenizer) Tokenize(source string) map[string]TokenInfo {
+	if t.normalize {
+		// Form.String returns source itself, without copying, when it is
+		// already in the configured form.
+		source = t.form.String(source)
+	}
+
 	tokens := make(map[string]TokenInfo)
 	s := newScanner(t.languages, t.policy)
 

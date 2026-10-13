@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 func newTestTokenizer() *Tokenizer {
@@ -664,4 +666,68 @@ func TestTokenizer_Concurrent(t *testing.T) {
 	for err := range errs {
 		t.Error(err)
 	}
+}
+
+func TestTokenizer_Normalization(t *testing.T) {
+	const (
+		composed   = "café"  // é as one code point
+		decomposed = "café" // e followed by COMBINING ACUTE ACCENT
+	)
+
+	t.Run("NFC by default", func(t *testing.T) {
+		tok := newTestTokenizer()
+		want := map[string]TokenInfo{
+			composed: {Language: 0, Base: [2]int{0, 5}},
+		}
+		for _, in := range []string{composed, decomposed} {
+			if got := tok.Tokenize(in); !reflect.DeepEqual(got, want) {
+				t.Errorf("Tokenize(%q) = %v, want %v", in, got, want)
+			}
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		tok := New(
+			WithPolicy(NewLinearPolicy(3, 10, 10, 2)),
+			WithLanguages(unicode.Latin, unicode.Cyrillic),
+			WithoutNormalization(),
+		)
+		// The combining mark is not a letter, so it starts its own segment and
+		// the decomposed spelling no longer shares a feature set with the
+		// composed one.
+		want := map[string]TokenInfo{
+			"cafe":     {Language: 0, Base: [2]int{0, 4}},
+			"́":        {Language: -1, Base: [2]int{0, 0}},
+			decomposed: {Language: 0, Base: [2]int{0, 4}},
+		}
+		if got := tok.Tokenize(decomposed); !reflect.DeepEqual(got, want) {
+			t.Errorf("Tokenize(%q) = %v, want %v", decomposed, got, want)
+		}
+	})
+
+	t.Run("configured form is honored", func(t *testing.T) {
+		tok := New(WithLanguages(unicode.Latin), WithNormalization(norm.NFD))
+		got := tok.Tokenize(composed)
+		if _, ok := got[decomposed]; !ok {
+			t.Errorf("Tokenize(%q) under NFD = %v, want key %q", composed, got, decomposed)
+		}
+	})
+
+	t.Run("NFKC folds compatibility variants", func(t *testing.T) {
+		tok := New(
+			WithPolicy(NewFixedPolicy(10)),
+			WithLanguages(unicode.Latin),
+			WithNormalization(norm.NFKC),
+		)
+		// Fullwidth letters and the fi ligature fold to ASCII, and the
+		// no-break space between them becomes a token boundary.
+		in := "ＰＤＦ ﬁle"
+		want := map[string]TokenInfo{
+			"PDF":  {Language: 0, Base: [2]int{0, 3}},
+			"file": {Language: 0, Base: [2]int{0, 4}},
+		}
+		if got := tok.Tokenize(in); !reflect.DeepEqual(got, want) {
+			t.Errorf("Tokenize(%q) = %v, want %v", in, got, want)
+		}
+	})
 }

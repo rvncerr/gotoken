@@ -12,8 +12,9 @@ always emitted, so exact-match lookups keep full recall.
 - **Sub-token generation** — Generates multiple overlapping tokens from compound words
 - **Language detection** — Identifies language of text segments using Unicode range tables
 - **Configurable depth** — Policy-based control over tokenization granularity, including a hard per-token output cap
+- **Unicode normalization** — Input is normalized to NFC before segmentation, so canonically equivalent spellings (`é` vs. `e` + combining accent) yield identical sub-tokens; the form is configurable
 - **Concurrency-safe** — A `Tokenizer` is immutable once built and safe to share across goroutines, provided its `Policy` is too (all built-in policies are)
-- **Minimal dependencies** — A single small dependency ([`gocircular`](https://github.com/rvncerr/gocircular)) for its generic ring buffer
+- **Minimal dependencies** — [`gocircular`](https://github.com/rvncerr/gocircular) for its generic ring buffer and [`golang.org/x/text`](https://pkg.go.dev/golang.org/x/text/unicode/norm) for normalization
 
 ## Installation
 
@@ -97,6 +98,37 @@ tok := gotoken.New(
 )
 ```
 
+## Normalization
+
+Unicode allows the same text to be encoded in more than one way: `é` can be the single code
+point U+00E9 or `e` followed by U+0301 COMBINING ACUTE ACCENT. Hashed indexes cannot tell these
+apart after the fact, and the decomposed form would even be split at the accent, which is not a
+letter. `Tokenize` therefore normalizes its input to
+[NFC](https://www.unicode.org/reports/tr15/) before doing anything else, so both spellings of
+`café` produce the same map:
+
+```go
+tok := gotoken.New(gotoken.WithLanguages(unicode.Latin))
+
+tok.Tokenize("café")  // {"café": {Language: 0, Base: [0, 5]}}
+tok.Tokenize("café") // {"café": {Language: 0, Base: [0, 5]}} — identical
+```
+
+The form is configurable. `NFKC` additionally folds compatibility variants (fullwidth letters,
+ligatures, superscript digits) onto their plain counterparts, which widens matching at the cost
+of conflating characters Unicode treats as distinct; because normalization runs on the whole
+source, a no-break space then becomes a token boundary too. Callers that already normalize
+upstream can skip the pass:
+
+```go
+import "golang.org/x/text/unicode/norm"
+
+gotoken.New(gotoken.WithNormalization(norm.NFKC)) // fold compatibility variants
+gotoken.New(gotoken.WithoutNormalization())       // input is already in the desired form
+```
+
+All sub-tokens and byte offsets in the result refer to the normalized text.
+
 ## Token Metadata
 
 Each entry in the returned map carries a `TokenInfo`:
@@ -133,6 +165,8 @@ uniformly, including under a policy that emits only whole tokens.
 | `WithPolicy(p Policy)` | Set the depth policy (default: `NewLinearPolicy(10, 10, 18, 2)`) |
 | `WithLanguage(rt *unicode.RangeTable)` | Add a language range table |
 | `WithLanguages(tables ...*unicode.RangeTable)` | Add multiple language range tables |
+| `WithNormalization(f norm.Form)` | Set the Unicode normalization form applied to input (default: `norm.NFC`) |
+| `WithoutNormalization()` | Skip normalization; input is used as given |
 
 ### Policies
 
