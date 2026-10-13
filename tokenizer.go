@@ -8,11 +8,12 @@
 // lookups keep full recall. Each sub-token carries a TokenInfo with the
 // detected language index and the byte range of the language-relevant portion.
 //
-// Input is brought into Unicode Normalization Form C before segmentation, so
-// canonically equivalent spellings of the same text — a precomposed "é" and an
-// "e" followed by a combining acute accent — yield identical sub-tokens. The
-// form is configurable with WithNormalization, and WithoutNormalization skips
-// the pass for callers that normalize upstream.
+// Input is brought into Unicode Normalization Form C and then case-folded
+// before segmentation, so canonically equivalent spellings of the same text —
+// a precomposed "é" and an "e" followed by a combining acute accent — and case
+// variants such as "PDF" and "pdf" yield identical sub-tokens. The
+// normalization form is configurable with WithNormalization;
+// WithoutNormalization and WithoutCaseFolding skip the respective pass.
 //
 // Three policies are provided: FixedPolicy returns a constant depth,
 // LinearPolicy interpolates the depth from the segment count (the default),
@@ -28,6 +29,7 @@ import (
 	"unicode"
 
 	"github.com/rvncerr/gocircular"
+	"golang.org/x/text/cases"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -83,6 +85,7 @@ type Tokenizer struct {
 	policy    Policy
 	form      norm.Form
 	normalize bool
+	fold      bool
 }
 
 // Option configures a Tokenizer.
@@ -151,13 +154,29 @@ func WithoutNormalization() Option {
 	}
 }
 
+// WithoutCaseFolding disables the case-folding pass, keeping "PDF" and "pdf"
+// distinct features. By default the normalized source is case-folded with
+// Unicode default (full) case folding, which is defined for matching rather
+// than display: it is language-independent, maps the Greek final and medial
+// sigma to one letter, and expands "ß" to "ss", so "Straße" and "STRASSE"
+// both fold to "strasse".
+func WithoutCaseFolding() Option {
+	return func(t *Tokenizer) {
+		t.fold = false
+	}
+}
+
+// caseFolder implements Unicode default case folding. It is stateless and
+// safe for concurrent use, so one instance serves every Tokenizer.
+var caseFolder = cases.Fold()
+
 // defaultPolicy is used when no policy is configured (or a nil policy is set).
 // LinearPolicy is immutable, so one shared instance serves every Tokenizer.
 var defaultPolicy Policy = NewLinearPolicy(10, 10, 18, 2)
 
 // New creates a new Tokenizer with the given options.
 func New(opts ...Option) *Tokenizer {
-	t := &Tokenizer{form: norm.NFC, normalize: true}
+	t := &Tokenizer{form: norm.NFC, normalize: true, fold: true}
 	for _, opt := range opts {
 		opt(t)
 	}
@@ -170,17 +189,24 @@ func New(opts ...Option) *Tokenizer {
 // Tokenize processes the input string and returns all detected tokens with
 // their info.
 //
-// The source is first normalized (see WithNormalization); every sub-token and
-// byte offset in the result refers to the normalized text. The result is keyed
-// by sub-token text, so identical sub-token strings are deduplicated and the
-// last occurrence wins. Map keys are sub-slices of the normalized source — of
-// source itself when it needed no change — so the returned map keeps that
-// backing storage alive.
+// The source is first normalized and then case-folded (see WithNormalization
+// and WithoutCaseFolding); every sub-token and byte offset in the result
+// refers to the text after both passes. The result is keyed by sub-token text,
+// so identical sub-token strings are deduplicated and the last occurrence
+// wins. Map keys are sub-slices of the transformed source — of source itself
+// when it needed no change — so the returned map keeps that backing storage
+// alive.
 func (t *Tokenizer) Tokenize(source string) map[string]TokenInfo {
 	if t.normalize {
 		// Form.String returns source itself, without copying, when it is
 		// already in the configured form.
 		source = t.form.String(source)
+	}
+	if t.fold {
+		// Folding after normalization keeps canonically equivalent inputs
+		// identical: they are already byte-equal after NFC. Already-folded
+		// text comes back unchanged.
+		source = caseFolder.String(source)
 	}
 
 	tokens := make(map[string]TokenInfo)

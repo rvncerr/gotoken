@@ -719,15 +719,68 @@ func TestTokenizer_Normalization(t *testing.T) {
 			WithLanguages(unicode.Latin),
 			WithNormalization(norm.NFKC),
 		)
-		// Fullwidth letters and the fi ligature fold to ASCII, and the
-		// no-break space between them becomes a token boundary.
+		// Fullwidth letters and the fi ligature fold to ASCII, the no-break
+		// space between them becomes a token boundary, and case folding then
+		// lowercases the letters.
 		in := "ＰＤＦ ﬁle"
 		want := map[string]TokenInfo{
-			"PDF":  {Language: 0, Base: [2]int{0, 3}},
+			"pdf":  {Language: 0, Base: [2]int{0, 3}},
 			"file": {Language: 0, Base: [2]int{0, 4}},
 		}
 		if got := tok.Tokenize(in); !reflect.DeepEqual(got, want) {
 			t.Errorf("Tokenize(%q) = %v, want %v", in, got, want)
+		}
+	})
+}
+
+func TestTokenizer_CaseFolding(t *testing.T) {
+	tok := New(
+		WithPolicy(NewFixedPolicy(10)),
+		WithLanguages(unicode.Latin, unicode.Greek),
+	)
+
+	t.Run("case variants agree", func(t *testing.T) {
+		pairs := [][2]string{
+			{"PDF", "pdf"},
+			{"Img2PDF", "img2pdf"},
+			{"Straße", "STRASSE"},    // full folding expands ß to ss
+			{"ΟΔΥΣΣΕΥΣ", "Οδυσσευς"}, // final and medial sigma fold alike
+			{"CAFÉ", "café"},        // folding follows normalization
+		}
+		for _, p := range pairs {
+			a, b := tok.Tokenize(p[0]), tok.Tokenize(p[1])
+			if !reflect.DeepEqual(a, b) {
+				t.Errorf("Tokenize(%q) = %v, Tokenize(%q) = %v; want equal", p[0], a, p[1], b)
+			}
+		}
+	})
+
+	t.Run("keys and offsets refer to the folded text", func(t *testing.T) {
+		want := map[string]TokenInfo{
+			"img":     {Language: 0, Base: [2]int{0, 3}},
+			"2":       {Language: -1, Base: [2]int{0, 0}},
+			"pdf":     {Language: 0, Base: [2]int{0, 3}},
+			"img2":    {Language: 0, Base: [2]int{0, 3}},
+			"2pdf":    {Language: 0, Base: [2]int{1, 4}},
+			"img2pdf": {Language: 0, Base: [2]int{0, 7}},
+		}
+		if got := tok.Tokenize("Img2PDF"); !reflect.DeepEqual(got, want) {
+			t.Errorf("Tokenize(%q) = %v, want %v", "Img2PDF", got, want)
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		cs := New(
+			WithPolicy(NewFixedPolicy(10)),
+			WithLanguages(unicode.Latin),
+			WithoutCaseFolding(),
+		)
+		got := cs.Tokenize("PDF")
+		if _, ok := got["PDF"]; !ok {
+			t.Errorf("Tokenize(%q) without folding = %v, want key %q", "PDF", got, "PDF")
+		}
+		if _, ok := got["pdf"]; ok {
+			t.Errorf("Tokenize(%q) without folding = %v, unexpected key %q", "PDF", got, "pdf")
 		}
 	})
 }

@@ -13,6 +13,7 @@ always emitted, so exact-match lookups keep full recall.
 - **Language detection** — Identifies language of text segments using Unicode range tables
 - **Configurable depth** — Policy-based control over tokenization granularity, including a hard per-token output cap
 - **Unicode normalization** — Input is normalized to NFC before segmentation, so canonically equivalent spellings (`é` vs. `e` + combining accent) yield identical sub-tokens; the form is configurable
+- **Case folding** — Unicode full case folding after normalization, so `PDF` and `pdf` hash to the same feature; can be disabled
 - **Concurrency-safe** — A `Tokenizer` is immutable once built and safe to share across goroutines, provided its `Policy` is too (all built-in policies are)
 - **Minimal dependencies** — [`gocircular`](https://github.com/rvncerr/gocircular) for its generic ring buffer and [`golang.org/x/text`](https://pkg.go.dev/golang.org/x/text/unicode/norm) for normalization
 
@@ -98,7 +99,7 @@ tok := gotoken.New(
 )
 ```
 
-## Normalization
+## Normalization and Case Folding
 
 Unicode allows the same text to be encoded in more than one way: `é` can be the single code
 point U+00E9 or `e` followed by U+0301 COMBINING ACUTE ACCENT. Hashed indexes cannot tell these
@@ -127,7 +128,17 @@ gotoken.New(gotoken.WithNormalization(norm.NFKC)) // fold compatibility variants
 gotoken.New(gotoken.WithoutNormalization())       // input is already in the desired form
 ```
 
-All sub-tokens and byte offsets in the result refer to the normalized text.
+After normalization the text is case-folded with Unicode default case folding
+([`cases.Fold`](https://pkg.go.dev/golang.org/x/text/cases#Fold)), so `PDF`, `Pdf`, and `pdf`
+produce the same sub-tokens and hash to the same feature. This is *full* folding, defined for
+matching rather than display: `Straße` and `STRASSE` both become `strasse`, and Greek final and
+medial sigma fold to one letter. Disable it for a case-sensitive index:
+
+```go
+gotoken.New(gotoken.WithoutCaseFolding()) // keep "PDF" and "pdf" distinct
+```
+
+All sub-tokens and byte offsets in the result refer to the normalized, case-folded text.
 
 ## Token Metadata
 
@@ -167,6 +178,7 @@ uniformly, including under a policy that emits only whole tokens.
 | `WithLanguages(tables ...*unicode.RangeTable)` | Add multiple language range tables |
 | `WithNormalization(f norm.Form)` | Set the Unicode normalization form applied to input (default: `norm.NFC`) |
 | `WithoutNormalization()` | Skip normalization; input is used as given |
+| `WithoutCaseFolding()` | Skip case folding; `PDF` and `pdf` stay distinct |
 
 ### Policies
 
